@@ -1,6 +1,8 @@
 *.pyc
 *.pth
 *.pt
+*.bin
+*.tar
 .cog/
 .vscode/
 bench/
@@ -10,3 +12,5 @@ clip-interrogator/
 clip_interrogator.egg-info/
 dist/
 venv/
+images/
+models/
