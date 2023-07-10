@@ -40,7 +40,7 @@ class Config:
     caption_offload: bool = False
 
     # clip settings
-    clip_model_name: str = 'ViT-L-14/openai'
+    clip_model_name: str = 'wisdomik/QuiltNet-B-32'
     clip_model_path: Optional[str] = None
     clip_offload: bool = False
 
@@ -67,7 +67,7 @@ class Interrogator():
         self.dtype = torch.float16 if self.device == 'cuda' else torch.float32
         self.caption_offloaded = True
         self.clip_offloaded = True
-        self.load_caption_model()
+        # self.load_caption_model()
         self.load_clip_model()
 
     def load_caption_model(self):
@@ -116,25 +116,10 @@ class Interrogator():
             self.clip_preprocess = config.clip_preprocess
         self.tokenize = open_clip.get_tokenizer(clip_model_name)
 
-        sites = ['Artstation', 'behance', 'cg society', 'cgsociety', 'deviantart', 'dribbble', 
-                 'flickr', 'instagram', 'pexels', 'pinterest', 'pixabay', 'pixiv', 'polycount', 
-                 'reddit', 'shutterstock', 'tumblr', 'unsplash', 'zbrush central']
-        trending_list = [site for site in sites]
-        trending_list.extend(["trending on "+site for site in sites])
-        trending_list.extend(["featured on "+site for site in sites])
-        trending_list.extend([site+" contest winner" for site in sites])
-
-        raw_artists = load_list(config.data_path, 'artists.txt')
-        artists = [f"by {a}" for a in raw_artists]
-        artists.extend([f"inspired by {a}" for a in raw_artists])
-
         self._prepare_clip()
-        self.artists = LabelTable(artists, "artists", self)
-        self.flavors = LabelTable(load_list(config.data_path, 'flavors.txt'), "flavors", self)
-        self.mediums = LabelTable(load_list(config.data_path, 'mediums.txt'), "mediums", self)
-        self.movements = LabelTable(load_list(config.data_path, 'movements.txt'), "movements", self)
-        self.trendings = LabelTable(trending_list, "trendings", self)
-        self.negative = LabelTable(load_list(config.data_path, 'negative.txt'), "negative", self)
+        self.benign = LabelTable(load_list(config.data_path, 'benign.txt'), "benign", self)
+        self.diagnoses = LabelTable(load_list(config.data_path, 'diagnoses.txt'), "diagnoses", self)
+        self.system = LabelTable(load_list(config.data_path, 'system.txt'), "system", self)
 
         end_time = time.time()
         if not config.quiet:
@@ -205,54 +190,36 @@ class Interrogator():
     def interrogate_classic(self, image: Image, max_flavors: int=3, caption: Optional[str]=None) -> str:
         """Classic mode creates a prompt in a standard format first describing the image, 
         then listing the artist, trending, movement, and flavor text modifiers."""
-        caption = caption or self.generate_caption(image)
+        # caption = caption or self.generate_caption(image)
+        caption = ""
         image_features = self.image_to_features(image)
 
-        medium = self.mediums.rank(image_features, 1)[0]
-        artist = self.artists.rank(image_features, 1)[0]
-        trending = self.trendings.rank(image_features, 1)[0]
-        movement = self.movements.rank(image_features, 1)[0]
-        flaves = ", ".join(self.flavors.rank(image_features, max_flavors))
+        benign = self.benign.rank(image_features, 1)[0]
+        system = self.system.rank(image_features, 1)[0]
+        diagnoses = ", ".join(self.diagnoses.rank(image_features, max_flavors))
 
-        if caption.startswith(medium):
-            prompt = f"{caption} {artist}, {trending}, {movement}, {flaves}"
+        if caption != "":
+            prompt = f"{caption} {system}, {benign}, {diagnoses}"
         else:
-            prompt = f"{caption}, {medium} {artist}, {trending}, {movement}, {flaves}"
+            prompt = f"{system}, {benign}, {diagnoses}"
 
         return _truncate_to_fit(prompt, self.tokenize)
 
     def interrogate_fast(self, image: Image, max_flavors: int=32, caption: Optional[str]=None) -> str:
-        """Fast mode simply adds the top ranked terms after a caption. It generally results in 
-        better similarity between generated prompt and image than classic mode, but the prompts
-        are less readable."""
-        caption = caption or self.generate_caption(image)
+        """Fast mode gives the most likely diagnosis in a single prompt. It is the fastest mode"""
+        caption = ""
         image_features = self.image_to_features(image)
-        merged = _merge_tables([self.artists, self.flavors, self.mediums, self.movements, self.trendings], self)
+        merged = _merge_tables([self.benign, self.system, self.diagnoses], self)
         tops = merged.rank(image_features, max_flavors)
         return _truncate_to_fit(caption + ", " + ", ".join(tops), self.tokenize)
 
     def interrogate_negative(self, image: Image, max_flavors: int = 32) -> str:
-        """Negative mode chains together the most dissimilar terms to the image. It can be used
-        to help build a negative prompt to pair with the regular positive prompt and often 
-        improve the results of generated images particularly with Stable Diffusion 2."""
-        image_features = self.image_to_features(image)
-        flaves = self.flavors.rank(image_features, self.config.flavor_intermediate_count, reverse=True)
-        flaves = flaves + self.negative.labels
-        return self.chain(image_features, flaves, max_count=max_flavors, reverse=True, desc="Negative chain")
+        """Not implemented yet"""
+        return self.interrogate_fast(image, max_flavors)
 
     def interrogate(self, image: Image, min_flavors: int=8, max_flavors: int=32, caption: Optional[str]=None) -> str:
-        caption = caption or self.generate_caption(image)
-        image_features = self.image_to_features(image)
-
-        merged = _merge_tables([self.artists, self.flavors, self.mediums, self.movements, self.trendings], self)
-        flaves = merged.rank(image_features, self.config.flavor_intermediate_count)
-        best_prompt, best_sim = caption, self.similarity(image_features, caption)
-        best_prompt = self.chain(image_features, flaves, best_prompt, best_sim, min_count=min_flavors, max_count=max_flavors, desc="Flavor chain")
-
-        fast_prompt = self.interrogate_fast(image, max_flavors, caption=caption)
-        classic_prompt = self.interrogate_classic(image, max_flavors, caption=caption)
-        candidates = [caption, classic_prompt, fast_prompt, best_prompt]
-        return candidates[np.argmax(self.similarities(image_features, candidates))]
+        """Not implemented yet"""
+        return self.interrogate_fast(image, max_flavors)
 
     def rank_top(self, image_features: torch.Tensor, text_array: List[str], reverse: bool=False) -> str:
         self._prepare_clip()

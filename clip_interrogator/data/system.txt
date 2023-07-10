@@ -1,0 +1,18 @@
+dermatopathology
+gastrointestinal
+gynecologic
+pulmonary
+soft tissue
+hematopathology
+genitourinary
+renal
+bone
+head and neck
+neuropathology
+endocrine
+breast
+cardiac
+cytopathobgy
+ophthalmic
+hepatopathology
+pediatric
