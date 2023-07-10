@@ -1,4 +1,6 @@
 *.pyc
+*.pth
+*.pt
 .cog/
 .vscode/
 bench/

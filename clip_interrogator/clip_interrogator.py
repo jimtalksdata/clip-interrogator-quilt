@@ -40,8 +40,8 @@ class Config:
     caption_offload: bool = False
 
     # clip settings
-    clip_model_name: str = 'wisdomik/QuiltNet-B-32'
-    clip_model_path: Optional[str] = None
+    clip_model_name: str = 'ViT-B-32'
+    clip_model_path: Optional[str] = 'models/'
     clip_offload: bool = False
 
     # interrogator settings
@@ -170,14 +170,14 @@ class Interrogator():
 
         return best_prompt
 
-    def generate_caption(self, pil_image: Image) -> str:
-        assert self.caption_model is not None, "No caption model loaded."
-        self._prepare_caption()
-        inputs = self.caption_processor(images=pil_image, return_tensors="pt").to(self.device)
-        if not self.config.caption_model_name.startswith('git-'):
-            inputs = inputs.to(self.dtype)
-        tokens = self.caption_model.generate(**inputs, max_new_tokens=self.config.caption_max_length)
-        return self.caption_processor.batch_decode(tokens, skip_special_tokens=True)[0].strip()
+    # def generate_caption(self, pil_image: Image) -> str:
+    #     assert self.caption_model is not None, "No caption model loaded."
+    #     self._prepare_caption()
+    #     inputs = self.caption_processor(images=pil_image, return_tensors="pt").to(self.device)
+    #     if not self.config.caption_model_name.startswith('git-'):
+    #         inputs = inputs.to(self.dtype)
+    #     tokens = self.caption_model.generate(**inputs, max_new_tokens=self.config.caption_max_length)
+    #     return self.caption_processor.batch_decode(tokens, skip_special_tokens=True)[0].strip()
 
     def image_to_features(self, image: Image) -> torch.Tensor:
         self._prepare_clip()
